@@ -59,6 +59,9 @@ def calculate_metrics(prices, rf_rate=0.015):
 
     daily_returns = prices.pct_change().dropna()
 
+    if len(daily_returns) == 0:
+        return None
+
     cumulative_return = (
         prices.iloc[-1] / prices.iloc[0]
     ) - 1
@@ -72,11 +75,18 @@ def calculate_metrics(prices, rf_rate=0.015):
         daily_returns.std() * np.sqrt(252)
     )
 
-    sharpe_ratio = (
-        annual_return - rf_rate
-    ) / volatility
+    # 避免除以0
+    if volatility == 0:
+        sharpe_ratio = np.nan
+    else:
+        sharpe_ratio = (
+            annual_return - rf_rate
+        ) / volatility
 
+    # =========================
     # 最大回撤
+    # =========================
+
     cumulative = (1 + daily_returns).cumprod()
 
     rolling_max = cumulative.cummax()
@@ -87,26 +97,38 @@ def calculate_metrics(prices, rf_rate=0.015):
 
     max_drawdown = drawdown.min()
 
+    # =========================
     # Sortino Ratio
+    # =========================
+
     downside = daily_returns[daily_returns < 0]
 
     downside_std = downside.std() * np.sqrt(252)
 
-    sortino_ratio = (
-        annual_return - rf_rate
-    ) / downside_std
+    if downside_std == 0 or np.isnan(downside_std):
+        sortino_ratio = np.nan
+    else:
+        sortino_ratio = (
+            annual_return - rf_rate
+        ) / downside_std
 
+    # =========================
     # Calmar Ratio
-    calmar_ratio = annual_return / abs(max_drawdown)
+    # =========================
+
+    if max_drawdown == 0:
+        calmar_ratio = np.nan
+    else:
+        calmar_ratio = annual_return / abs(max_drawdown)
 
     return {
-        "總報酬率": cumulative_return,
-        "年化報酬率": annual_return,
-        "波動率": volatility,
-        "Sharpe Ratio": sharpe_ratio,
-        "最大回撤": max_drawdown,
-        "Sortino Ratio": sortino_ratio,
-        "Calmar Ratio": calmar_ratio
+        "總報酬率": float(cumulative_return),
+        "年化報酬率": float(annual_return),
+        "波動率": float(volatility),
+        "Sharpe Ratio": float(sharpe_ratio),
+        "最大回撤": float(max_drawdown),
+        "Sortino Ratio": float(sortino_ratio),
+        "Calmar Ratio": float(calmar_ratio)
     }
 
 # =========================
@@ -118,21 +140,37 @@ if st.button("開始分析"):
     tickers = [
         t.strip()
         for t in tickers_input.split(",")
+        if t.strip() != ""
     ]
 
     benchmark = "^TWII"
 
-    benchmark_data = yf.download(
+    # =========================
+    # Benchmark
+    # =========================
+
+    benchmark_df = yf.download(
         benchmark,
         start=start_date,
-        end=end_date
-    )["Close"]
+        end=end_date,
+        auto_adjust=True
+    )
+
+    if benchmark_df.empty:
+        st.error("Benchmark 無法下載")
+        st.stop()
+
+    benchmark_data = benchmark_df["Close"]
 
     benchmark_returns = benchmark_data.pct_change().dropna()
 
     all_results = []
 
     fig = go.Figure()
+
+    # =========================
+    # 每支股票分析
+    # =========================
 
     for ticker in tickers:
 
@@ -141,17 +179,38 @@ if st.button("開始分析"):
             data = yf.download(
                 ticker,
                 start=start_date,
-                end=end_date
+                end=end_date,
+                auto_adjust=True
             )
 
+            # 無資料
+            if data.empty:
+                st.warning(f"{ticker} 無資料")
+                continue
+
             prices = data["Close"]
+
+            if prices.empty:
+                st.warning(f"{ticker} 價格資料為空")
+                continue
+
+            # =========================
+            # 計算指標
+            # =========================
 
             metrics = calculate_metrics(
                 prices,
                 risk_free_rate / 100
             )
 
+            if metrics is None:
+                st.warning(f"{ticker} 無法計算")
+                continue
+
+            # =========================
             # Beta / Alpha
+            # =========================
+
             stock_returns = prices.pct_change().dropna()
 
             aligned = pd.concat(
@@ -159,13 +218,19 @@ if st.button("開始分析"):
                 axis=1
             ).dropna()
 
-            slope, intercept, _, _, _ = linregress(
-                aligned.iloc[:,1],
-                aligned.iloc[:,0]
-            )
+            if len(aligned) > 10:
 
-            beta = slope
-            alpha = intercept * 252
+                slope, intercept, _, _, _ = linregress(
+                    aligned.iloc[:, 1],
+                    aligned.iloc[:, 0]
+                )
+
+                beta = float(slope)
+                alpha = float(intercept * 252)
+
+            else:
+                beta = np.nan
+                alpha = np.nan
 
             metrics["Beta"] = beta
             metrics["Alpha"] = alpha
@@ -174,7 +239,10 @@ if st.button("開始分析"):
 
             all_results.append(metrics)
 
+            # =========================
             # 累積報酬圖
+            # =========================
+
             cumulative = (
                 prices / prices.iloc[0]
             )
@@ -189,13 +257,26 @@ if st.button("開始分析"):
             )
 
         except Exception as e:
-            st.error(f"{ticker} 發生錯誤：{e}")
+
+            st.error(f"{ticker} 發生錯誤：{str(e)}")
+
+    # =========================
+    # 無結果
+    # =========================
+
+    if len(all_results) == 0:
+        st.error("沒有可分析資料")
+        st.stop()
 
     # =========================
     # DataFrame
     # =========================
 
     result_df = pd.DataFrame(all_results)
+
+    # =========================
+    # 百分比欄位
+    # =========================
 
     percentage_cols = [
         "總報酬率",
@@ -206,9 +287,19 @@ if st.button("開始分析"):
     ]
 
     for col in percentage_cols:
+
+        result_df[col] = pd.to_numeric(
+            result_df[col],
+            errors="coerce"
+        )
+
         result_df[col] = (
             result_df[col] * 100
         ).round(2).astype(str) + "%"
+
+    # =========================
+    # 數值欄位
+    # =========================
 
     numeric_cols = [
         "Sharpe Ratio",
@@ -218,6 +309,12 @@ if st.button("開始分析"):
     ]
 
     for col in numeric_cols:
+
+        result_df[col] = pd.to_numeric(
+            result_df[col],
+            errors="coerce"
+        )
+
         result_df[col] = result_df[col].round(3)
 
     # =========================
@@ -232,7 +329,7 @@ if st.button("開始分析"):
     )
 
     # =========================
-    # 圖表
+    # 圖表設定
     # =========================
 
     fig.update_layout(
@@ -249,31 +346,49 @@ if st.button("開始分析"):
     )
 
     # =========================
-    # 投資組合模擬
+    # 長期持有模擬
     # =========================
 
     st.subheader("💰 長期持有資產變化")
 
     for ticker in tickers:
 
-        data = yf.download(
-            ticker,
-            start=start_date,
-            end=end_date
-        )
+        try:
 
-        prices = data["Close"]
+            data = yf.download(
+                ticker,
+                start=start_date,
+                end=end_date,
+                auto_adjust=True
+            )
 
-        shares = initial_money / prices.iloc[0]
+            if data.empty:
+                continue
 
-        final_value = shares * prices.iloc[-1]
+            prices = data["Close"]
 
-        total_profit = final_value - initial_money
+            if prices.empty:
+                continue
 
-        st.write(f"""
-        ### {ticker}
+            shares = initial_money / prices.iloc[0]
 
-        - 初始資金：{initial_money:,.0f}
-        - 最終資產：{final_value:,.0f}
-        - 總獲利：{total_profit:,.0f}
-        """)
+            final_value = shares * prices.iloc[-1]
+
+            total_profit = final_value - initial_money
+
+            total_return = (
+                final_value / initial_money - 1
+            ) * 100
+
+            st.markdown(f"""
+            ### {ticker}
+
+            - 初始資金：{initial_money:,.0f}
+            - 最終資產：{final_value:,.0f}
+            - 總獲利：{total_profit:,.0f}
+            - 投資報酬率：{total_return:.2f}%
+            """)
+
+        except Exception as e:
+
+            st.warning(f"{ticker} 長期持有模擬失敗")
