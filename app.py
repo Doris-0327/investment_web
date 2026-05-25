@@ -52,31 +52,50 @@ initial_money = st.number_input(
 )
 
 # =========================
-# 計算函數
+# 計算績效指標
 # =========================
 
 def calculate_metrics(prices, rf_rate=0.015):
 
+    prices = pd.Series(prices).dropna()
+
     daily_returns = prices.pct_change().dropna()
 
-    if len(daily_returns) == 0:
+    if len(daily_returns) < 2:
         return None
+
+    # =========================
+    # 總報酬率
+    # =========================
 
     cumulative_return = (
         prices.iloc[-1] / prices.iloc[0]
     ) - 1
+
+    # =========================
+    # 年化報酬率
+    # =========================
 
     annual_return = (
         (1 + cumulative_return)
         ** (252 / len(daily_returns))
     ) - 1
 
+    # =========================
+    # 波動率
+    # =========================
+
     volatility = (
         daily_returns.std() * np.sqrt(252)
     )
 
-    # 避免除以0
-    if volatility == 0:
+    volatility = float(volatility)
+
+    # =========================
+    # Sharpe Ratio
+    # =========================
+
+    if volatility == 0 or np.isnan(volatility):
         sharpe_ratio = np.nan
     else:
         sharpe_ratio = (
@@ -95,7 +114,7 @@ def calculate_metrics(prices, rf_rate=0.015):
         cumulative - rolling_max
     ) / rolling_max
 
-    max_drawdown = drawdown.min()
+    max_drawdown = float(drawdown.min())
 
     # =========================
     # Sortino Ratio
@@ -105,7 +124,7 @@ def calculate_metrics(prices, rf_rate=0.015):
 
     downside_std = downside.std() * np.sqrt(252)
 
-    if downside_std == 0 or np.isnan(downside_std):
+    if pd.isna(downside_std) or downside_std == 0:
         sortino_ratio = np.nan
     else:
         sortino_ratio = (
@@ -116,7 +135,7 @@ def calculate_metrics(prices, rf_rate=0.015):
     # Calmar Ratio
     # =========================
 
-    if max_drawdown == 0:
+    if max_drawdown == 0 or np.isnan(max_drawdown):
         calmar_ratio = np.nan
     else:
         calmar_ratio = annual_return / abs(max_drawdown)
@@ -143,26 +162,38 @@ if st.button("開始分析"):
         if t.strip() != ""
     ]
 
-    benchmark = "^TWII"
-
     # =========================
     # Benchmark
     # =========================
+
+    benchmark = "^TWII"
 
     benchmark_df = yf.download(
         benchmark,
         start=start_date,
         end=end_date,
-        auto_adjust=True
+        auto_adjust=True,
+        progress=False
     )
 
     if benchmark_df.empty:
         st.error("Benchmark 無法下載")
         st.stop()
 
-    benchmark_data = benchmark_df["Close"]
+    benchmark_data = (
+        benchmark_df["Close"]
+        .astype(float)
+        .squeeze()
+    )
 
-    benchmark_returns = benchmark_data.pct_change().dropna()
+    benchmark_returns = (
+        benchmark_data.pct_change()
+        .dropna()
+    )
+
+    # =========================
+    # 結果儲存
+    # =========================
 
     all_results = []
 
@@ -176,22 +207,34 @@ if st.button("開始分析"):
 
         try:
 
+            # =========================
+            # 下載資料
+            # =========================
+
             data = yf.download(
                 ticker,
                 start=start_date,
                 end=end_date,
-                auto_adjust=True
+                auto_adjust=True,
+                progress=False
             )
 
-            # 無資料
             if data.empty:
                 st.warning(f"{ticker} 無資料")
                 continue
 
-            prices = data["Close"]
+            # =========================
+            # 價格資料
+            # =========================
 
-            if prices.empty:
-                st.warning(f"{ticker} 價格資料為空")
+            prices = (
+                data["Close"]
+                .astype(float)
+                .squeeze()
+            )
+
+            if len(prices) < 2:
+                st.warning(f"{ticker} 資料不足")
                 continue
 
             # =========================
@@ -211,7 +254,10 @@ if st.button("開始分析"):
             # Beta / Alpha
             # =========================
 
-            stock_returns = prices.pct_change().dropna()
+            stock_returns = (
+                prices.pct_change()
+                .dropna()
+            )
 
             aligned = pd.concat(
                 [stock_returns, benchmark_returns],
@@ -226,15 +272,16 @@ if st.button("開始分析"):
                 )
 
                 beta = float(slope)
+
                 alpha = float(intercept * 252)
 
             else:
+
                 beta = np.nan
                 alpha = np.nan
 
             metrics["Beta"] = beta
             metrics["Alpha"] = alpha
-
             metrics["股票"] = ticker
 
             all_results.append(metrics)
@@ -258,7 +305,9 @@ if st.button("開始分析"):
 
         except Exception as e:
 
-            st.error(f"{ticker} 發生錯誤：{str(e)}")
+            st.error(
+                f"{ticker} 發生錯誤：{str(e)}"
+            )
 
     # =========================
     # 無結果
@@ -295,7 +344,12 @@ if st.button("開始分析"):
 
         result_df[col] = (
             result_df[col] * 100
-        ).round(2).astype(str) + "%"
+        ).round(2)
+
+        result_df[col] = (
+            result_df[col]
+            .astype(str) + "%"
+        )
 
     # =========================
     # 數值欄位
@@ -315,7 +369,10 @@ if st.button("開始分析"):
             errors="coerce"
         )
 
-        result_df[col] = result_df[col].round(3)
+        result_df[col] = (
+            result_df[col]
+            .round(3)
+        )
 
     # =========================
     # 顯示結果
@@ -329,7 +386,7 @@ if st.button("開始分析"):
     )
 
     # =========================
-    # 圖表設定
+    # 圖表
     # =========================
 
     fig.update_layout(
@@ -359,36 +416,49 @@ if st.button("開始分析"):
                 ticker,
                 start=start_date,
                 end=end_date,
-                auto_adjust=True
+                auto_adjust=True,
+                progress=False
             )
 
             if data.empty:
                 continue
 
-            prices = data["Close"]
+            prices = (
+                data["Close"]
+                .astype(float)
+                .squeeze()
+            )
 
-            if prices.empty:
+            if len(prices) < 2:
                 continue
 
-            shares = initial_money / prices.iloc[0]
+            shares = (
+                initial_money / prices.iloc[0]
+            )
 
-            final_value = shares * prices.iloc[-1]
+            final_value = (
+                shares * prices.iloc[-1]
+            )
 
-            total_profit = final_value - initial_money
+            total_profit = (
+                final_value - initial_money
+            )
 
             total_return = (
                 final_value / initial_money - 1
             ) * 100
 
             st.markdown(f"""
-            ### {ticker}
+### {ticker}
 
-            - 初始資金：{initial_money:,.0f}
-            - 最終資產：{final_value:,.0f}
-            - 總獲利：{total_profit:,.0f}
-            - 投資報酬率：{total_return:.2f}%
+- 初始資金：{initial_money:,.0f}
+- 最終資產：{final_value:,.0f}
+- 總獲利：{total_profit:,.0f}
+- 投資報酬率：{total_return:.2f}%
             """)
 
         except Exception as e:
 
-            st.warning(f"{ticker} 長期持有模擬失敗")
+            st.warning(
+                f"{ticker} 長期持有模擬失敗"
+            )
