@@ -280,10 +280,19 @@ if st.button("開始分析"):
                 beta = np.nan
                 alpha = np.nan
 
-            metrics["Beta"] = beta
-            metrics["Alpha"] = alpha
-            metrics["股票"] = ticker
-
+            metrics = {
+            "股票": ticker,
+            "總報酬率": metrics["總報酬率"],
+            "年化報酬率": metrics["年化報酬率"],
+            "波動率": metrics["波動率"],
+            "Sharpe Ratio": metrics["Sharpe Ratio"],
+            "最大回撤": metrics["最大回撤"],
+            "Sortino Ratio": metrics["Sortino Ratio"],
+            "Calmar Ratio": metrics["Calmar Ratio"],
+            "Beta": beta,
+            "Alpha": alpha
+            }
+        
             all_results.append(metrics)
 
             # =========================
