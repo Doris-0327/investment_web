@@ -22,34 +22,79 @@ st.title("📈 股票績效分析平台")
 
 col1, col2, col3 = st.columns(3)
 
+# =========================
+# 股票輸入區（最多5檔）
+# =========================
+
 with col1:
-    tickers_input = st.text_input(
-        "股票代號（逗號分隔）",
-        "2330.TW,2454.TW,AAPL"
-    )
+
+    st.write("### 股票代號")
+
+    stock_cols = st.columns(5)
+
+    default_values = [
+        "2330.TW",
+        "2454.TW",
+        "AAPL",
+        "",
+        ""
+    ]
+
+    stock_inputs = []
+
+    for i in range(5):
+
+        with stock_cols[i]:
+
+            stock = st.text_input(
+                f"股票 {i+1}",
+                value=default_values[i]
+            )
+
+            stock_inputs.append(stock)
+
+# =========================
+# 日期區間
+# =========================
 
 with col2:
+
     start_date = st.date_input(
         "開始日期",
         pd.to_datetime("2020-01-01")
     )
 
-with col3:
     end_date = st.date_input(
         "結束日期",
         pd.to_datetime("today")
     )
 
-risk_free_rate = st.number_input(
-    "無風險利率 (%)",
-    value=1.5,
-    step=0.1
-)
+# =========================
+# 其他參數
+# =========================
 
-initial_money = st.number_input(
-    "初始資金",
-    value=100000
-)
+with col3:
+
+    risk_free_rate = st.number_input(
+        "無風險利率 (%)",
+        value=1.5,
+        step=0.1
+    )
+
+    initial_money = st.number_input(
+        "初始資金",
+        value=100000
+    )
+
+# =========================
+# 股票列表
+# =========================
+
+tickers = [
+    t.strip()
+    for t in stock_inputs
+    if t.strip() != ""
+]
 
 # =========================
 # 計算績效指標
@@ -156,11 +201,9 @@ def calculate_metrics(prices, rf_rate=0.015):
 
 if st.button("開始分析"):
 
-    tickers = [
-        t.strip()
-        for t in tickers_input.split(",")
-        if t.strip() != ""
-    ]
+    if len(tickers) == 0:
+        st.warning("請至少輸入一檔股票")
+        st.stop()
 
     # =========================
     # Benchmark
@@ -280,19 +323,23 @@ if st.button("開始分析"):
                 beta = np.nan
                 alpha = np.nan
 
+            # =========================
+            # 儲存結果
+            # =========================
+
             metrics = {
-            "股票": ticker,
-            "總報酬率": metrics["總報酬率"],
-            "年化報酬率": metrics["年化報酬率"],
-            "波動率": metrics["波動率"],
-            "Sharpe Ratio": metrics["Sharpe Ratio"],
-            "最大回撤": metrics["最大回撤"],
-            "Sortino Ratio": metrics["Sortino Ratio"],
-            "Calmar Ratio": metrics["Calmar Ratio"],
-            "Beta": beta,
-            "Alpha": alpha
+                "股票": ticker,
+                "總報酬率": metrics["總報酬率"],
+                "年化報酬率": metrics["年化報酬率"],
+                "波動率": metrics["波動率"],
+                "Sharpe Ratio": metrics["Sharpe Ratio"],
+                "最大回撤": metrics["最大回撤"],
+                "Sortino Ratio": metrics["Sortino Ratio"],
+                "Calmar Ratio": metrics["Calmar Ratio"],
+                "Beta": beta,
+                "Alpha": alpha
             }
-        
+
             all_results.append(metrics)
 
             # =========================
@@ -466,7 +513,7 @@ if st.button("開始分析"):
 - 投資報酬率：{total_return:.2f}%
             """)
 
-        except Exception as e:
+        except Exception:
 
             st.warning(
                 f"{ticker} 長期持有模擬失敗"
